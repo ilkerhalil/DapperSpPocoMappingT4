@@ -1,0 +1,156 @@
+﻿<#@ assembly name="System" #>
+<#@ assembly name="System.Core" #>
+<#@ assembly name="System.Xml" #>
+<#@ assembly name="System.Data" #>
+<#@ include file="Helper.tt" #>
+<#@ include file="t4toolbox.tt" #>
+<#@ import namespace="System.Data.SqlClient" #>
+<#@ import namespace="System.Linq" #>
+<#@ import namespace="System.Text" #>
+<#@ import namespace="System.Data" #>
+<#@ import namespace="System.Collections.Generic" #>
+<#@ import namespace="System.Collections" #>
+<#@ import namespace="System.Data.SqlClient" #>
+
+<#+
+    public void CreateStoreProcedureForInterface(string procedureName,string connectionString,string nameSpace)
+    {
+        if(HasReturnType(procedureName,connectionString))
+        {
+            string resultClassName = string.Format("{0}Result",procedureName);
+            string fullName = string.Format("{0} {1}",resultClassName,procedureName);
+                #>
+		IEnumerable<<#=            resultClassName #>> <#=procedureName#><#=            WriteParameters(procedureName,connectionString) #>;
+<#+
+            var returnTypeTemplate = new ReturnTypeTemplate(connectionString,procedureName,resultClassName,nameSpace);
+            returnTypeTemplate.Render();
+			}
+        else
+        {
+#>
+		int <#=            procedureName #><#=            WriteParameters(procedureName,connectionString) #>;
+
+<#+
+        }
+    }
+
+	public void CreateStoreProcedureForClass(string procedureName,string connectionString,string nameSpace)
+    {
+		bool hasparam;
+			var param = WriteParameters(procedureName, connectionString, out hasparam);
+        if(HasReturnType(procedureName,connectionString))
+        {
+            var resultClassName = string.Format("{0}Result",procedureName);
+            
+            #>
+			public IEnumerable<<#=resultClassName #>> <#=procedureName#><#= WriteParameters(procedureName,connectionString) #>
+			{
+				return sqlConnection.Query<<#=resultClassName #>>("<#=procedureName#>"
+						<#+
+            if (hasparam)
+            {
+				#>
+				,new { <#=param#> }
+				<#+
+			}
+            #>
+				,commandType: CommandType.StoredProcedure);
+					}
+<#+
+        }
+        else
+        {
+#>
+		public int <#=            procedureName #><#=            WriteParameters(procedureName,connectionString) #>
+		{
+				return sqlConnection.Execute("<#=            procedureName #>"
+				<#+
+            if (hasparam)
+            {
+				#>
+				,new { <#=param#> }
+				<#+
+			}
+            #>
+				,commandType: CommandType.StoredProcedure);
+		}
+<#+
+        }
+    }
+
+    public class ReturnTypeTemplate : Template 
+    {
+        readonly string connectionString;
+
+        readonly string procedureName;
+
+        readonly string resultClassName;
+
+        readonly string nameSpace;
+
+        public ReturnTypeTemplate(string connectionString,string procedureName,string className,string nameSpace)
+        {
+            this.connectionString = connectionString;
+            this.procedureName = procedureName;
+            this.resultClassName = className;
+            this.nameSpace = nameSpace;
+        }
+
+        public override string TransformText()
+        {
+            Output.PreserveExistingFile = true;
+            Output.File = resultClassName + ".cs";
+            //string resultClassName = string.Format("{0}Result",procedureName);
+            var queryString  = string.Format("DECLARE @sql NVARCHAR(MAX) = N'EXEC {0};'",procedureName);
+            queryString  += "SELECT  dr.name,dr.system_type_name  as type FROM sys.dm_exec_describe_first_result_set(@sql, NULL, 0) dr order by ordinal_in_order_by_list;";
+			var propertiesList = new List<string>();
+            using(var connection = new SqlConnection(connectionString))
+            {
+                connection.Open();
+                var cmd = new SqlCommand(queryString, connection);
+                var reader = cmd.ExecuteReader();
+                
+				
+            #>
+			
+namespace <#=                this.nameSpace #>
+{
+		using System;
+		
+		public class <#=                resultClassName #>
+		{
+<#+
+                while(reader.Read())
+                {
+                    var propertyName = reader["name"].ToString();
+                    var propertyType = reader["type"].ToString();
+                    propertyType = ConvertSqlTypeToNet(propertyType);
+
+                    propertiesList.Add(propertyName);
+               #>
+				public <#=                    string.Format("{0} {1}",propertyType,propertyName)   #> {get;set;}
+<#+
+                }
+
+				 
+
+            }
+        #>
+
+			   public override string ToString()
+			   {
+					<#= MakeToString(propertiesList.ToArray()) #>;
+			   }
+		}
+}
+<#+ 
+
+            return GenerationEnvironment.ToString();
+        }
+    }
+
+#>
+
+
+
+

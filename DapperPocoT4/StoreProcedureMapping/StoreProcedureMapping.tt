@@ -1,0 +1,101 @@
+﻿<#@ template debug="false" hostspecific="false" language="C#" #>
+<#@ include file="WriteStoreProcedureParameters.tt" #>
+
+<#@ assembly name="System" #>
+<#@ assembly name="System.Core" #>
+<#@ assembly name="System.Data" #>
+<#@ import namespace="System.Configuration" #>
+
+<#@ output extension=".cs" #>
+
+<#
+    const string projectnamespace = "";
+    const string configName ="";
+    const string connectionString = @"data source=*****;initial catalog=******;Integrated Security=true ;MultipleActiveResultSets=True";
+    var proceduresName = new []
+                             {
+                                "spName"							 
+                             };
+							 
+    
+#>
+
+namespace <#=projectnamespace #>
+{
+	using System;
+	using System.Collections.Generic;
+
+	public interface IDataAccess : IDisposable
+	{	
+
+<#  
+    if(proceduresName.Length>0&&!string.IsNullOrEmpty(connectionString))
+    {
+        foreach(var procedure in proceduresName)
+        {
+            CreateStoreProcedureForInterface(procedure,connectionString,projectnamespace); 
+        }
+    }
+#>
+	}
+}
+
+namespace <#= projectnamespace#>
+{
+	using System;
+    using System.Collections.Generic;
+    using System.Configuration;
+    using System.Data;
+    using System.Data.SqlClient;
+    using Dapper;
+	
+	public class DataAccessImp:IDataAccess
+	{
+		readonly SqlConnection sqlConnection;
+		
+		public DataAccessImp()
+		{
+			var connectionString  = ConfigurationManager.ConnectionStrings["<#= configName#>"].ConnectionString;
+			sqlConnection = new SqlConnection(connectionString);
+			
+		}
+
+		<#
+			foreach (var s in proceduresName)
+			{
+				this.CreateStoreProcedureForClass(s,connectionString,projectnamespace);
+		    }
+
+		#>
+		#region Implementation of IDisposable
+
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected void Dispose(bool b)
+        {
+            if (!b)
+            {
+                return;
+            }
+            if (this.sqlConnection != null)
+                this.sqlConnection.Dispose();
+        }
+
+        #endregion
+	 
+	}
+}
+
+ <#+
+
+ 
+        
+
+
+ 
+
+ #>

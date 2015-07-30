@@ -1,0 +1,418 @@
+﻿<#@ assembly name="System" #>
+<#@ assembly name="System.Core" #>
+<#@ assembly name="System.Data" #>
+<#@ assembly name="System.Xml, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089" #>
+<#@ import namespace="System.Data.SqlClient" #>
+<#@ import namespace="System.Linq" #>
+<#@ import namespace="System.Security.Cryptography.X509Certificates" #>
+<#@ import namespace="System.Text" #>
+<#@ import namespace="System.Data" #>
+<#@ import namespace="System.Collections.Generic" #>
+<#@ import namespace="System.Collections" #>
+<#@ import namespace="System.Data.SqlClient" #>
+<#+ 
+string WriteParameters(string procedureName,string connectionString,out bool ps)
+    {
+        SqlParameterCollection parameters;
+        using(var connection = new SqlConnection(connectionString))
+        {
+            connection.Open();
+            var cmd= new SqlCommand(procedureName,connection)
+                         {
+                             CommandType = CommandType.StoredProcedure
+                         };
+            SqlCommandBuilder.DeriveParameters(cmd);
+            parameters = cmd.Parameters;
+        }
+
+		var lastItem = parameters.Cast<SqlParameter>().Last();
+        var builder  = new StringBuilder();
+        foreach (SqlParameter p in parameters)
+        {
+            if(p.Direction == ParameterDirection.ReturnValue)
+            {
+                if(p == lastItem)
+                {
+                    builder.Append("()");
+                    ps = false;
+                    break;
+                }
+                continue;
+            }
+            if(p == lastItem)
+            {
+				builder.AppendFormat("{0}", p.ParameterName);
+				break;
+            }
+			builder.AppendFormat("{0},", p.ParameterName);
+        }
+		ps = true;
+        return builder.ToString();
+    }
+
+    string WriteParameters(string procedureName,string connectionString)
+    {
+        SqlParameterCollection parameters;
+        using(var connection = new SqlConnection(connectionString))
+        {
+            connection.Open();
+            var cmd= new SqlCommand(procedureName,connection)
+                         {
+                             CommandType = CommandType.StoredProcedure
+                         };
+            SqlCommandBuilder.DeriveParameters(cmd);
+            parameters = cmd.Parameters;
+        }
+       
+        var firstItem = parameters.Cast<SqlParameter>().First();
+        var lastItem = parameters.Cast<SqlParameter>().Last();
+        var builder  = new StringBuilder();
+        builder.Append("(");
+        foreach (SqlParameter p in parameters)
+        {
+            if(p.Direction == ParameterDirection.ReturnValue)
+            {
+                if(p == lastItem)
+                {
+                    builder.Append("()");
+                    break;
+                }
+                continue;
+            }
+            if(p == firstItem)
+            {
+                builder.Append(string.Format("{0} {1},",ConvertSqlTypeToNet(p.SqlDbType),p.ParameterName));
+            }
+            else if(p == lastItem)
+            {
+                builder.Append(string.Format("{0} {1}",ConvertSqlTypeToNet(p.SqlDbType),p.ParameterName));
+            }
+            else
+            {
+                builder.Append(string.Format("{0} {1},",ConvertSqlTypeToNet(p.SqlDbType),p.ParameterName));
+            }
+        }
+        builder.Append(")");
+        return builder.ToString();
+    }
+    bool HasReturnType(string procedureName,string connectionString)
+    {
+        var p  = false;
+        var queryString  = string.Format("DECLARE @sql NVARCHAR(MAX) = N'EXEC {0};'",procedureName);
+        queryString  += "SELECT name, system_type_name as type FROM sys.dm_exec_describe_first_result_set(@sql, NULL, 0) order by ordinal_in_order_by_list;";
+        var connection = new SqlConnection(connectionString);
+        connection.Open();    
+        var cmd = new SqlCommand(queryString, connection);
+        var reader = cmd.ExecuteReader();
+        p =reader.HasRows;
+        connection.Close();
+    
+        return p;
+    }
+    Type GetClrType(SqlDbType sqlType)
+    {
+        switch (sqlType)
+        {
+            case SqlDbType.BigInt:
+                return typeof(long?);
+
+            case SqlDbType.Binary:
+            case SqlDbType.Image:
+            case SqlDbType.Timestamp:
+            case SqlDbType.VarBinary:
+                return typeof(byte[]);
+
+            case SqlDbType.Bit:
+                return typeof(bool?);
+
+            case SqlDbType.Char:
+            case SqlDbType.NChar:
+            case SqlDbType.NText:
+            case SqlDbType.NVarChar:
+            case SqlDbType.Text:
+            case SqlDbType.VarChar:
+            case SqlDbType.Xml:
+                return typeof(string);
+
+            case SqlDbType.DateTime:
+            case SqlDbType.SmallDateTime:
+            case SqlDbType.Date:
+            case SqlDbType.Time:
+            case SqlDbType.DateTime2:
+                return typeof(DateTime?);
+
+            case SqlDbType.Decimal:
+            case SqlDbType.Money:
+            case SqlDbType.SmallMoney:
+                return typeof(decimal?);
+
+            case SqlDbType.Float:
+                return typeof(double?);
+
+            case SqlDbType.Int:
+                return typeof(int?);
+
+            case SqlDbType.Real:
+                return typeof(float?);
+
+            case SqlDbType.UniqueIdentifier:
+                return typeof(Guid?);
+
+            case SqlDbType.SmallInt:
+                return typeof(short?);
+
+            case SqlDbType.TinyInt:
+                return typeof(byte?);
+
+            case SqlDbType.Variant:
+            case SqlDbType.Udt:
+                return typeof(object);
+
+            case SqlDbType.Structured:
+                return typeof(DataTable);
+
+            case SqlDbType.DateTimeOffset:
+                return typeof(DateTimeOffset?);
+
+            default:
+                throw new ArgumentOutOfRangeException("sqlType");
+        }
+    }
+
+    static string ConvertSqlTypeToNet(string sqlDbType)
+    {
+        switch (sqlDbType)
+        {
+            case "bigint":
+                return "Nullable<long>";
+            case "binary":
+                return "Nullable<byte>";
+            case "bit":
+				return "Nullable<bool>";
+            case "char":
+                return "Nullable<char>";
+            case "date":
+                return "Nullable<DateTime>";
+            case "datetime":
+                return "Nullable<DateTime>";
+            case "datetime2":
+                return "Nullable<DateTime>";
+            case "datetimeoffset":
+                return "Nullable<DateTimeOffset>";
+            case "decimal":
+                return "Nullable<decimal>";
+            case "float":
+                return "Nullable<double>";
+            case "image":
+                return "Nullable<byte[]>";
+
+            case "int":
+                return "Nullable<int>";
+            case "money":
+                return "Nullable<decimal>";
+            case "nchar":
+                return "string";
+            case "ntext":
+                return "string";
+            case "nvarchar":
+                return "string";
+            case "real":
+                return "Nullable<Single>";
+            case "smalldatetime":
+                return "Nullable<DateTime>";
+            case "smallint":
+                return "Nullable<short>";
+            case "SmallMoney":
+                return "Nullable<decimal>";
+            case "structured":
+                return "string";
+            case "text":
+                return "string";
+            case "time":
+                return "Nullable<TimeSpan>";
+            case "timestamp":
+                return "Nullable<byte[]>";
+            case "tinyint":
+                return "Nullable<byte>";
+            case "uniqueidentifier":
+                return "Nullable<Guid>";
+            case "varbinary":
+                return "Nullable<byte[]>";
+            case "varchar":
+                return "string";
+            case "xml":
+                return "string";
+            default:
+                return "string";
+        }
+    }
+
+    static string ConvertSqlTypeToNet(SqlDbType sqlDbType)
+    {
+        switch (sqlDbType)
+        {
+            case SqlDbType.BigInt:
+                return "Nullable<long>";
+            case SqlDbType.Binary:
+                return "Nullable<byte>";
+            case SqlDbType.Bit:
+                break;
+            case SqlDbType.Char:
+                return "Nullable<char>";
+            case SqlDbType.Date:
+                return "Nullable<DateTime>";
+            case SqlDbType.DateTime:
+                return "Nullable<DateTime>";
+            case SqlDbType.DateTime2:
+                return "Nullable<DateTime>";
+            case SqlDbType.DateTimeOffset:
+                return "Nullable<DateTimeOffset>";
+
+            case SqlDbType.Decimal:
+                return "Nullable<decimal>";
+            case SqlDbType.Float:
+                return "Nullable<double>";
+            case SqlDbType.Image:
+                return "Nullable<byte[]>";
+
+            case SqlDbType.Int:
+                return "Nullable<int>";
+            case SqlDbType.Money:
+                return "Nullable<decimal>";
+            case SqlDbType.NChar:
+                return "string";
+            case SqlDbType.NText:
+                return "string";
+            case SqlDbType.NVarChar:
+                return "string";
+            case SqlDbType.Real:
+                return "Nullable<Single>";
+            case SqlDbType.SmallDateTime:
+                return "Nullable<DateTime>";
+            case SqlDbType.SmallInt:
+                return "Nullable<short>";
+            case SqlDbType.SmallMoney:
+                return "Nullable<decimal>";
+
+            case SqlDbType.Structured:
+                return "string";
+            case SqlDbType.Text:
+                return "string";
+            case SqlDbType.Time:
+                return "Nullable<TimeSpan>";
+            case SqlDbType.Timestamp:
+                return "Nullable<byte[]>";
+            case SqlDbType.TinyInt:
+                return "Nullable<byte>";
+            case SqlDbType.UniqueIdentifier:
+                return "Nullable<Guid>";
+            case SqlDbType.VarBinary:
+                return "Nullable<byte[]>";
+            case SqlDbType.VarChar:
+                return "string";
+            case SqlDbType.Xml:
+                return "string";
+            default:
+                return "string";
+        }
+        return string.Empty;
+
+
+    }
+
+    static string ConvertSqlType4Net(string strsqlDbType)
+    {
+        switch (strsqlDbType)
+        {
+            case "BigInt":
+                return "Nullable<long>";
+            case "Binary":
+                return "Nullable<byte>";
+            case "Bit":
+                break;
+            case "Char":
+                return "Nullable<char>";
+            case "Date":
+                return "Nullable<DateTime>";
+            case "DateTime":
+                return "Nullable<DateTime>";
+            case "DateTime2":
+                return "Nullable<DateTime>";
+            case "DateTimeOffset":
+                return "Nullable<DateTimeOffset>";
+
+            case "Decimal":
+                return "Nullable<decimal>";
+            case "Float":
+                return "Nullable<double>";
+            case "Image":
+                return "Nullable<byte[]>";
+
+            case "Int":
+                return "Nullable<int>";
+            case "Money":
+                return "Nullable<decimal>";
+            case "NChar":
+                return "string";
+            case "NText":
+                return "string";
+            case "NVarChar":
+                return "string";
+            case "Real":
+                return "Nullable<Single>";
+            case "SmallDateTime":
+                return "Nullable<DateTime>";
+            case "SmallInt":
+                return "Nullable<short>";
+            case "SmallMoney":
+                return "Nullable<decimal>";
+
+            case "Structured":
+                return "string";
+            case "Text":
+                return "string";
+            case "Time":
+                return "Nullable<TimeSpan>";
+            case "Timestamp":
+                return "Nullable<byte[]>";
+            case "TinyInt":
+                return "Nullable<byte>";
+            case "UniqueIdentifier":
+                return "Nullable<Guid>";
+            case "VarBinary":
+                return "Nullable<byte[]>";
+            case "VarChar":
+                return "string";
+            case "Xml":
+                return "string";
+            default:
+                return "string";
+        }
+        return string.Empty;
+
+
+    }
+
+    static SqlDbType ConvertToSqlDbType(string type)
+    {
+        var enumValues = Enum.GetNames(typeof(SqlDbType)).Single(w => w.ToUpperInvariant() == type.ToUpperInvariant());
+        return (SqlDbType)Enum.Parse(typeof(SqlDbType),enumValues);
+    }
+
+	static string MakeToString(params string[] propertyName)
+    {
+		var stringBuilder = new StringBuilder();
+		stringBuilder.Append("return string.Format(");
+		stringBuilder.Append((char)34);
+        for (int i = 0; i < propertyName.Length; i++)
+        {
+			if(propertyName.Length-1>i) stringBuilder.Append("{"+ i +"},");
+			else stringBuilder.Append("{"+ i +"}");
+        }
+		stringBuilder.Append((char)34);
+		stringBuilder.Append(",");
+	    stringBuilder.Append(String.Join(",", propertyName));
+		stringBuilder.Append(");");
+	    return stringBuilder.ToString();
+    }
+ #>
